@@ -1,206 +1,121 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Webcam Mirror</title>
   <style>
-    :root {
-      --bg-color: #0f172a;
-      --card-bg: #1e293b;
-      --text-color: #f8fafc;
-      --accent-color: #38bdf8;
-    }
-
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-
     body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background-color: var(--bg-color);
-      color: var(--text-color);
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 1.5rem;
-    }
-
-    header {
-      margin-bottom: 1.5rem;
+      margin: 0;
+      padding: 24px;
+      background: #101318;
+      color: white;
+      font-family: Arial, sans-serif;
       text-align: center;
     }
-
-    h1 {
-      font-size: 1.875rem;
-      font-weight: 700;
-      color: var(--text-color);
-    }
-
-    p.subtitle {
-      font-size: 0.875rem;
-      color: #94a3b8;
-      margin-top: 0.25rem;
-    }
-
-    .viewport-container {
+    main { max-width: 850px; margin: auto; }
+    #stage {
       position: relative;
       width: 100%;
-      max-width: 800px;
       aspect-ratio: 16 / 9;
-      background-color: var(--card-bg);
-      border-radius: 12px;
+      background: #050608;
       overflow: hidden;
-      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
-      border: 1px solid #334155;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
     }
-
     video {
-      position: absolute;
       width: 100%;
       height: 100%;
       object-fit: cover;
       transform: scaleX(-1);
       display: none;
     }
-
-    canvas {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      transform: scaleX(-1);
-    }
-
-    .placeholder {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 1rem;
-      color: #64748b;
-      text-align: center;
-      padding: 1rem;
-    }
-
-    .btn {
-      background-color: var(--accent-color);
-      color: #0f172a;
-      font-weight: 600;
-      padding: 0.625rem 1.25rem;
-      border-radius: 6px;
-      border: none;
+    button {
+      margin: 16px 5px;
+      padding: 12px 20px;
       cursor: pointer;
-      transition: background-color 0.2s, transform 0.1s;
     }
-
-    .btn:hover {
-      background-color: #7dd3fc;
-    }
-
-    .btn:active {
-      transform: scale(0.98);
+    #status { margin: 16px 0; }
+    #error {
+      color: #ff9e9e;
+      overflow-wrap: anywhere;
     }
   </style>
-
-  <!-- MediaPipe dependencies (ready for un-commenting when you add landmarks later) -->
-  <!-- 
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
-  -->
 </head>
 <body>
-
-  <header>
+  <main>
     <h1>Webcam Mirror</h1>
-    <p class="subtitle">Cloudflare Worker Static Assets App</p>
-  </header>
+    <p id="status">Camera is off</p>
 
-  <div class="viewport-container" id="viewport">
-    <div class="placeholder" id="placeholder">
-      <p>Camera permission required to mirror video</p>
-      <button class="btn" id="startBtn">Start Camera</button>
+    <div id="stage">
+      <video id="video" autoplay muted playsinline></video>
+      <p id="placeholder">Your camera preview will appear here.</p>
     </div>
 
-    <!-- Hidden raw video element -->
-    <video id="webcam" autoplay playsinline muted></video>
+    <button id="start">Start Camera</button>
+    <button id="stop" disabled>Stop Camera</button>
 
-    <!-- Canvas for rendering mirror feed & future MediaPipe landmarks -->
-    <canvas id="output_canvas"></canvas>
-  </div>
+    <p id="error" role="alert"></p>
+  </main>
 
   <script>
-    const videoElement = document.getElementById('webcam');
-    const canvasElement = document.getElementById('output_canvas');
-    const canvasCtx = canvasElement.getContext('2d');
-    const startBtn = document.getElementById('startBtn');
-    const placeholder = document.getElementById('placeholder');
+    const video = document.getElementById("video");
+    const status = document.getElementById("status");
+    const error = document.getElementById("error");
+    const placeholder = document.getElementById("placeholder");
+    const start = document.getElementById("start");
+    const stop = document.getElementById("stop");
 
-    let isStreaming = false;
+    let stream = null;
 
-    async function startCamera() {
+    start.addEventListener("click", async () => {
+      error.textContent = "";
+      status.textContent = "Requesting camera access...";
+      start.disabled = true;
+
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            facingMode: 'user'
-          },
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error(
+            "Camera API unavailable. Open this page directly using HTTPS."
+          );
+        }
+
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
           audio: false
         });
 
-        videoElement.srcObject = stream;
-        await videoElement.play();
+        video.srcObject = stream;
+        await video.play();
 
-        placeholder.style.display = 'none';
-        isStreaming = true;
-
-        resizeCanvas();
-        window.addEventListener('resize', resizeCanvas);
-
-        requestAnimationFrame(renderLoop);
-      } catch (err) {
-        console.error('Error accessing webcam:', err);
-        alert('Could not access webcam. Please check browser permissions.');
+        video.style.display = "block";
+        placeholder.style.display = "none";
+        status.textContent = "Camera is running!";
+        stop.disabled = false;
+      } catch (e) {
+        status.textContent = "Camera could not start.";
+        error.textContent = e.name + ": " + e.message;
+        console.error(e);
+        start.disabled = false;
       }
-    }
+    });
 
-    function resizeCanvas() {
-      if (videoElement.videoWidth && videoElement.videoHeight) {
-        canvasElement.width = videoElement.videoWidth;
-        canvasElement.height = videoElement.videoHeight;
-      }
-    }
-
-    function renderLoop() {
-      if (!isStreaming) return;
-
-      if (canvasElement.width !== videoElement.videoWidth) {
-        resizeCanvas();
+    stop.addEventListener("click", () => {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
       }
 
-      canvasCtx.save();
-      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-      canvasCtx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
-
-      // ==============================================================
-      // FUTURE MEDIAPIPE LANDMARK DRAWING GOES HERE
-      // ==============================================================
-
-      canvasCtx.restore();
-
-      requestAnimationFrame(renderLoop);
-    }
-
-    startBtn.addEventListener('click', startCamera);
+      stream = null;
+      video.srcObject = null;
+      video.style.display = "none";
+      placeholder.style.display = "block";
+      status.textContent = "Camera is off";
+      error.textContent = "";
+      start.disabled = false;
+      stop.disabled = true;
+    });
   </script>
 </body>
 </html>
